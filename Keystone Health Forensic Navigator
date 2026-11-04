@@ -1,0 +1,340 @@
+# Keystone Health Forensic Navigator — Compliance Reference Framework
+
+**Regulatory reference matrix, audit checklist, and deployment runbook for healthcare billing, collection, and PHI-handling operations.**
+
+Status: `v1.3 audit checklist` · `13 references` · `33 assertions` · `schema-validated`  
+Last verification pass: 2026-11-02 / 2026-11-03  
+Jurisdictional scope: United States federal law + Commonwealth of Pennsylvania
+
+---
+
+## ⚠️ Read This First
+
+This repository is **engineering and compliance-operations documentation**. It is **not legal advice**.
+Every citation carries a `basis` field distinguishing:
+
+- `law` — traced to a statute or regulation
+- `secondary` — taken from a secondary source; verify against primary text
+- `internal_design` — our own control choice, **not** a legal mandate
+- `best_practice` — guidance only, non-binding
+
+Citations marked `unverified` in the Source Index have **not** been confirmed against primary
+text. Do not rely on them in an audit until counsel has reviewed them.
+
+---
+
+## Table of Contents
+
+1. [Repository Architecture](#1-repository-architecture)
+2. [Directory Reference](#2-directory-reference)
+3. [Regulatory Reference Matrix](#3-regulatory-reference-matrix)
+4. [Retention Classes](#4-retention-classes)
+5. [Fail-Stop Triggers](#5-fail-stop-triggers)
+6. [Audit Control Structure](#6-audit-control-structure)
+7. [Evidence Repository Layout](#7-evidence-repository-layout)
+8. [Schema & Validation](#8-schema--validation)
+9. [Deployment Runbook Summary](#9-deployment-runbook-summary)
+10. [Case Law & Litigation Tracking](#10-case-law--litigation-tracking)
+11. [Open Verification Items](#11-open-verification-items)
+12. [Source Index — Every Link](#12-source-index--every-link)
+13. [Maintenance Cadence](#13-maintenance-cadence)
+14. [Contributing & Governance](#14-contributing--governance)
+
+---
+
+## 1. Repository Architecture
+
+```text
+keystone-forensic-navigator-compliance/
+│
+├── README.md                          ← this file
+├── LICENSE
+├── CHANGELOG.md
+├── CODEOWNERS
+├── .linkcheckignore
+│
+├── .github/
+│   └── workflows/
+│       ├── validate-audit.yml          CI: schema-validate quarterly_audit.yaml
+│       ├── link-check.yml              CI: weekly link-rot sweep
+│       ├── hash-chain-verify.yml       CI: nightly evidence chain integrity
+│       └── retention-expiry-report.yml CI: monthly T-180 expiry digest
+│
+├── schema/
+│   ├── quarterly_audit.schema.json     Draft 2020-12 schema for the audit artifact
+│   ├── evidence_record.schema.json     Base evidence log record (hash chain + TSA)
+│   └── retention_class.schema.json     Retention class definition schema
+│
+├── audit/
+│   ├── quarterly_audit.yaml            v1.3 — 33 assertions, Q1–Q8
+│   ├── validate_audit.py               Validator invoked by CI
+│   └── fixtures/
+│       ├── production_shaped.yaml      Test fixture for staging validation
+│       └── expected_output.txt         Reference validator output
+│
+├── references/
+│   ├── REFERENCES.csv                  Machine-readable reference matrix
+│   ├── references.yaml                 Same data, structured + basis fields
+│   └── retention_classes.yaml          Retention class registry
+│
+├── compliance/
+│   ├── matrix/
+│   │   └── control_matrix.csv          Obligation → control → artifact mapping
+│   ├── evidence/                       POINTER ONLY — evidence lives outside repo
+│   │   └── README.md                   Explains why evidence is not versioned here
+│   └── mappings/
+│       ├── tma_vacatur_provisions.yaml Provision-level vacatur map
+│       └── fceua_fdcpa_utpcpl.yaml     Multi-tier liability cascade
+│
+├── runbook/
+│   ├── DEPLOYMENT_RUNBOOK.md           Phases 0–5, gates, rollback procedures
+│   ├── ROLLBACK_MATRIX.md              Master rollback reference table
+│   └── COMMUNICATION_PLAN.md           Escalation and notification routing
+│
+├── docs/
+│   ├── verification-log.md             What was checked, when, by what method
+│   ├── open-items.md                   Counsel review queue
+│   ├── glossary.md                     QPA, IDR, GFE, GPCI, RVU, IIHI …
+│   ├── case-law/
+│   │   └── tma-litigation-tracker.md   TMA I–III + related proceedings
+│   └── adr/
+│       ├── 0001-split-ref-008.md       Why HIPAA and NIST were separated
+│       ├── 0002-atomic-citation-rows.md Why one URL per row
+│       └── 0003-evidence-immutability.md Why rollback never rewrites evidence
+│
+└── tools/
+    ├── hash_chain_verify.py            Walks prev_record_hash linkage
+    ├── retention_migrate.py            Applies retention-class migration map
+    ├── expiry_diff.py                  Compares before/after expiry calendars
+    └── tsa_verify.py                   Validates RFC 3161 tokens
+```
+
+---
+
+## 2. Directory Reference
+
+| Path | Contents | Owner | Versioned? |
+|---|---|---|---|
+| `schema/` | JSON Schemas (Draft 2020-12) validating all machine-readable artifacts | Systems Architect | Yes |
+| `audit/` | The quarterly audit checklist and its validator | Compliance Lead | Yes |
+| `references/` | The regulatory reference matrix in CSV + YAML | Governance Officer | Yes |
+| `compliance/matrix/` | Obligation → control point → audit artifact mapping | Compliance Lead | Yes |
+| `compliance/evidence/` | **Pointer only.** Actual evidence is stored in the secured evidence store, never in git | Governance Officer | No — by design |
+| `runbook/` | Deployment and rollback procedures | Deployment Lead | Yes |
+| `docs/` | Verification log, open items, glossary, ADRs | Governance Officer | Yes |
+| `tools/` | Python utilities for chain verification, migration, expiry diffing | Systems Architect | Yes |
+| `.github/workflows/` | CI: validation, link checking, chain verification, expiry reporting | Systems Architect | Yes |
+
+**Design rule:** evidence artifacts are **never** committed to this repository. Git history is
+rewritable; evidence must not be. The repo holds *how to find and verify* evidence, not the
+evidence itself. See `docs/adr/0003-evidence-immutability.md`.
+
+---
+
+## 3. Regulatory Reference Matrix
+
+Status legend: ✅ fetched and read · 🔎 surfaced in search results · ⚠️ unverified · 🔒 internal
+
+### 3.1 Core references
+
+| Ref ID | Instrument | Scope | Binding Nature | Citation | Primary URL | Status |
+|---|---|---|---|---|---|---|
+| REF-001 | No Surprises Act (Consolidated Appropriations Act 2021, Div. BB, Tit. I) | Balance billing prohibitions, emergency + OON care | Binding Federal Law | P.L. 116-260 | [congress.gov H.R.133 text](https://www.congress.gov/bill/116th-congress/house-bill/133/text) | ✅ |
+| REF-002 | Requirements Related to Surprise Billing, Part I | QPA methodology, open negotiation, IDR workflow | Binding Federal Regulation | 45 CFR Part 149 | [eCFR 45 CFR Part 149](https://www.ecfr.gov/current/title-45/subtitle-A/subchapter-B/part-149) | ✅ |
+| REF-003 | PA Insurance Department — NSA administration | State enforcement, consumer complaint resolution | Binding State Regulation | PID guidance | [PA.gov PID No Surprises Act](https://www.pa.gov/agencies/insurance/laws-regulations-notices/no-surprises-act) | 🔎 |
+| REF-004 | Fair Credit Extension Uniformity Act (FCEUA) | Debt collection standards, unfair/deceptive practices | Binding State Law | 73 P.S. § 2270.1 et seq. | [Act 2000-7 (PDF)](https://www.legis.state.pa.us/WU01/LI/LI/US/PDF/2000/0/0007..PDF) | 🔎 |
+| REF-005 | PA Judicial Code — Limitation of Actions | Four-year limitation on contract actions | Binding State Law | 42 Pa.C.S. § 5525 | [PA Gen. Assembly § 5525](https://www.legis.state.pa.us/WU01/LI/LI/CT/HTM/42/00.055.025.000..HTM) | 🔎 |
+| REF-006 | Medicare Physician Fee Schedule — RVUs and GAF | RVU computation, GPCI geographic adjustment | Binding Federal Regulation | 42 CFR § 414.22 + § 414.26 | [eCFR § 414.22](https://www.ecfr.gov/current/title-42/chapter-IV/subchapter-B/part-414/subpart-B/section-414.22) · [Subpart B (contains § 414.26)](https://www.ecfr.gov/current/title-42/chapter-IV/subchapter-B/part-414/subpart-B) | ✅ |
+| REF-007 | Layered Memory Protocol (LMP) Architecture Spec | State consistency, versioning ($v_{in} > v_t$), SHA-256 chaining | Internal Control Spec | Internal doc | 🔒 Internal | 🔒 |
+| REF-008A | HIPAA Security Rule | Administrative, physical, technical safeguards for ePHI | Binding Federal Regulation | 45 CFR Part 160 + Part 164 Subparts A & C | [eCFR Part 164 Subpart C](https://www.ecfr.gov/current/title-45/subtitle-A/subchapter-C/part-164/subpart-C) · [HHS Security Rule](https://www.hhs.gov/hipaa/for-professionals/security/index.html) | ✅ |
+| REF-008B | NIST SP 800-122 — Guide to Protecting the Confidentiality of PII | PII identification, confidentiality impact levels | Non-Binding Federal Guidance | NIST SP 800-122 (final, 04/06/10) | [NIST CSRC SP 800-122](https://csrc.nist.gov/publications/detail/sp/800-122/final) | ✅ |
+| REF-009 | PA Insurance Department — market conduct & rate filings | Carrier loss ratios, rate benchmarks, AV tracking | Binding State Filing Requirement | PID filings | [PID ACA Health Rate Filings](https://www.pa.gov/agencies/insurance/posted-filings-reports-company-orders/posted-product-and-rate-filings/aca-health-rate-filings) | 🔎 |
+| REF-011 | Employee Retirement Income Security Act (ERISA) | Plan-type determination, federal preemption | Binding Federal Law | 29 U.S.C. § 1001 et seq. | [DOL — ERISA](https://www.dol.gov/general/topic/health-plans/erisa) | ✅ |
+| REF-014A | Fair Debt Collection Practices Act (FDCPA) | Federal debt collection statutory floor | Binding Federal Law | 15 U.S.C. § 1692 | [Cornell LII — 15 U.S.C. § 1692](https://www.law.cornell.edu/uscode/text/15/1692) | ✅ |
+| REF-014B | Regulation F | Debt collection implementing rules | Binding Federal Regulation | 12 CFR Part 1006 | [CFPB — Regulation F](https://www.consumerfinance.gov/rules-policy/regulations/1006/Interp_1006) | ✅ |
+
+### 3.2 Supporting references (cited within assertions)
+
+| Support Ref | Purpose | Citation | URL | Status |
+|---|---|---|---|---|
+| SUP-01 | HIPAA documentation retention (6 years, "whichever is later") | 45 CFR § 164.316(b)(2)(i) | [eCFR § 164.316](https://www.ecfr.gov/current/title-45/subtitle-A/subchapter-C/part-164/subpart-C/section-164.316) · [Cornell LII mirror](https://www.law.cornell.edu/cfr/text/45/164.316) | ✅ |
+| SUP-02 | IDR entity recordkeeping (6 years) | 45 CFR § 149.510(e)(viii) | [eCFR § 149.510](https://www.ecfr.gov/current/title-45/subtitle-A/subchapter-B/part-149/subpart-F/section-149.510) · [Cornell LII mirror](https://www.law.cornell.edu/cfr/text/45/149.510) | 🔎 |
+| SUP-03 | Good faith estimate retention (medical record; 6-year floor for copies) | 45 CFR § 149.610(f)(1) | [eCFR § 149.610](https://www.ecfr.gov/current/title-45/subtitle-A/subchapter-B/part-149/subpart-G/section-149.610) · [Cornell LII mirror](https://www.law.cornell.edu/cfr/text/45/149.610) | 🔎 |
+| SUP-04 | Computer security log management guidance | NIST SP 800-92 | [NIST CSRC SP 800-92](https://csrc.nist.gov/pubs/sp/800/92/final) | ✅ |
+| SUP-05 | Trusted timestamp protocol (proof-of-existence) | RFC 3161 | [IETF RFC 3161](https://datatracker.ietf.org/doc/html/rfc3161) | ✅ |
+| SUP-06 | Medicare Physician Fee Schedule (program page) | CMS PFS | [CMS Physician Fee Schedule](https://www.cms.gov/medicare/payment/fee-schedules/physician) | ✅ |
+| SUP-07 | False Claims Act limitations window (6y / 3y / 10y cap) | 31 U.S.C. § 3731(b) | [Cornell LII — 31 U.S.C. § 3731](https://www.law.cornell.edu/uscode/text/31/3731) | 🔎 |
+| SUP-08 | HIPAA Security Rule documentation requirements (HHS series) | HHS OCR | [HHS Security Series #5 (PDF)](https://www.hhs.gov/sites/default/files/ocr/privacy/hipaa/administrative/securityrule/pprequirements.pdf) | 🔎 |
+| SUP-09 | NSA consumer rights overview (federal floor / state preservation) | CMS fact sheet | [CMS No Surprises fact sheet](https://www.cms.gov/newsroom/fact-sheets/no-surprises-understand-your-rights-against-surprise-medical-bills) | 🔎 |
+| SUP-10 | FDCPA statutory text (alternate source) | FTC | [FTC FDCPA text](https://www.ftc.gov/legal-library/browse/rules/fair-debt-collection-practices-act-text) | 🔎 |
+| SUP-11 | FDCPA examination procedures incl. Reg F record retention | OCC Comptroller's Handbook | [OCC FDCPA Handbook (PDF)](https://www.occ.treas.gov/publications-and-resources/publications/comptrollers-handbook/files/fair-debt-collection-practices-act/fair-debt-collection-practices-act-examination-procedures-interagency.pdf) | 🔎 |
+| SUP-12 | Federal IDR process guidance for certified IDR entities | CMS | [CMS IDR Entity Guidance (PDF)](https://www.cms.gov/files/document/federal-idr-guidance-idr-entities-march-2023.pdf) | 🔎 |
+| SUP-13 | GFE FAQs for uninsured / self-pay individuals | CMS | [CMS GFE FAQ Part 4 (PDF)](https://www.cms.gov/files/document/faqs-good-faith-estimate-uninsured-self-pay-part-4.pdf) | 🔎 |
+| SUP-14 | IDR selection data elements | DOL | [DOL — Certified IDR Entity Selection Data Elements](https://beta.dol.gov/policy-regulations/pay-benefits/health-plans/surprise-billing-and-price-transparency/tools-and-resources/employers-and-service-providers/federal-independent-dispute-resolution-idr-process/selection-certified-idr-entity-data-elements) | 🔎 |
+| SUP-15 | NSA IDR process toolkit | AMA | [AMA NSA IDR Toolkit (PDF)](https://www.ama-assn.org/system/files/ama-nsa-idr-toolkit.pdf) | 🔎 |
+
+---
+
+## 4. Retention Classes
+
+| Class ID | Trigger | Years | Basis | Authority | Scope | Owner |
+|---|---|---|---|---|---|---|
+| `HIPAA-DOC-6Y` | `last_effective_date` | 6 | **law** | 45 CFR § 164.316(b)(2)(i) | HIPAA security policies and required documentation **only** | Governance Officer |
+| `CFPB-FDCPA-3Y` | `last_collection_activity` | 3 | **law** | 12 CFR § 1006.100 | Debt collector records; FCEUA also reaches creditors, so default longer | Collections Director |
+| `NSA-IDR-6Y` | `determination_date` | 6 | secondary | 45 CFR § 149.510(e)(viii) | Stated for certified IDR entities; plans/providers use 7y policy | Legal Counsel |
+| `NSA-GFE-MEDREC` | `gfe_issue_date` | 6 floor | secondary | 45 CFR § 149.610(f)(1) | GFE is part of the medical record; 6y floor for requested copies | Legal Counsel |
+| `POLICY-7Y` | `creation_date` | 7 | internal_design | — | Default where no mandate exists; **never** apply to HIPAA-DOC records | Policy Administrator |
+| `PA-RATE-5Y` | `filing_effective_date` | 5 | internal_design | — | PA rate filing datasets | Analytics Lead |
+| `CLAIM-10Y` | `violation_date` | 10 | **law** | 31 U.S.C. § 3731(b) | Litigation-exposure horizon, **not** a retention mandate | Legal Counsel |
+
+**Retention alert:** T−180 days before expiry. `legal_hold_suspends_all_expirations: true`.
+
+**Critical trap:** HIPAA's clock runs from *"the date of its creation or the date when it last was
+in effect, whichever is later."* A superseded policy does not age off until six years after its
+last effective date. Purging on creation date is the single most common misapplication.
+
+---
+
+## 5. Fail-Stop Triggers
+
+| ID | Condition | Action | Escalate To |
+|---|---|---|---|
+| FS1 | Any `prev_record_hash` mismatch | Halt automated processing | CTO, CCO |
+| FS2 | `tsa_token` missing on >5% of critical records | Quarantine batch | SecOps Manager |
+| FS3 | Retention trigger misclassified on >2% of records | Manual review queue | Governance Officer |
+| FS4 | `encryption_state == plaintext` on any PHI transmission | Incident ticket | CISO |
+| FS5 | `benchmark_vintage` is null | Reject IDR output | Head of Pricing Analytics |
+
+**Migration-day override:** during retention migration, the FS3 tolerance is **0%**, not 2%.
+The 2% figure is a steady-state threshold.
+
+**Hypercare override:** if aggregate false-positive rate across FS1–FS5 exceeds **5% of trigger
+events** over any 72-hour window, roll all triggers back to alert-only and hold for root cause.
+
+---
+
+## 6. Audit Control Structure
+
+| Control | Title | Tier | Assertions | Primary Authority |
+|---|---|---|---|---|
+| Q1 | NSA balance billing | 1 | 5 | 45 CFR §§ 149.410, 149.420 |
+| Q2 | IDR / QPA computation | 1 | 4 | 45 CFR §§ 149.140, 149.510 |
+| Q3 | MPFS fair market value | 1 | 4 | 42 CFR § 414.26 |
+| Q4 | HIPAA Security Rule | 1 | 5 | 45 CFR §§ 164.308, 164.312, 164.316 |
+| Q5 | FCEUA / FDCPA | 2 | 5 | 15 U.S.C. § 1692c(a)(1); 12 CFR §§ 1006.6, 1006.14, 1006.34, 1006.100; 73 P.S. § 2270.1 |
+| Q6 | ERISA plan-type determination | 2 | 3 | 29 U.S.C. § 1144 |
+| Q7 | State enforcement | 2 | 3 | Internal design |
+| Q8 | Statute of limitations | 2 | 3 | 42 Pa.C.S. § 5525(a)(8) |
+
+**Total: 33 assertions.** Validated: `OK: 0 errors, 0 warnings, 33 assertions`.
+
+### Assertion basis distribution
+
+| Basis | Count | Meaning |
+|---|---|---|
+| `law` | 17 | Traced to statute or regulation |
+| `internal_design` | 13 | Our control choice, not a mandate |
+| `best_practice` | 1 | Guidance only |
+| `secondary` | 2 | From secondary source; verify against primary text |
+
+---
+
+## 7. Evidence Repository Layout
+
+Evidence lives **outside** this repository, in the secured evidence store:
+
+```text
+/compliance/evidence/
+├── 001-NSA/
+│   ├── balance-billing-logs/
+│   └── good-faith-estimate-receipts/
+├── 002-IDR/
+│   ├── qpa-worksheets/
+│   └── open-negotiation-packages/
+├── 003-PA-PID/
+│   ├── complaint-intake-records/
+│   └── federal-coordination-docs/
+├── 004-FCEUA/
+│   ├── communication-logs/
+│   └── disclosure-templates/
+├── 005-PA-SLA/
+│   ├── accrual-date-calculations/
+│   └── expired-claims-registry/
+├── 006-MPFS/
+│   ├── fee-comparison-snapshots/
+│   └── gpci-application-records/
+├── 008A-HIPAA/
+│   ├── access-control-matrix/
+│   ├── risk-analysis-reports/
+│   └── incident-response-logs/
+├── 009-RateFilings/
+│   ├── carrier-filing-datasets/
+│   └── loss-ratio-calculations/
+├── 011-ERISA/
+│   ├── plan-determination-docs/
+│   └── jurisdiction-routing-records/
+└── 014-FDCPA/
+    ├── validation-notices/
+    ├── communication-time-logs/
+    └── cease-request-confirmations/
+```
+
+### Base evidence record schema
+
+```json
+{
+  "event_id": "UUID",
+  "sequence_no": 0,
+  "timestamp_utc": "RFC 3339",
+  "ref_id": "REF-008A",
+  "control_point": "SecurityRule_AccessControl_Admin",
+  "actor":  { "principal_id": "", "role": "", "session_id": "" },
+  "subject": { "patient_pseudonym": "", "encounter_id": "" },
+  "action": "permit | deny | compute | disclose | update",
+  "decision_basis": { "citation": "45 CFR 164.312(a)(1)", "rule_version": "" },
+  "inputs_hash": "sha256:<hex>",
+  "payload_hash": "sha256:<hex>",
+  "prev_record_hash": "sha256:<hex>",
+  "record_hash": "sha256:<hex>",
+  "tsa_token": "RFC 3161 base64 token",
+  "retention_class": "HIPAA-DOC-6Y | POLICY-7Y",
+  "retention_trigger": "creation | last_effective_date"
+}
+```
+
+Four integrity properties this provides:
+
+| Property | Mechanism | Authority |
+|---|---|---|
+| Tamper evidence | `prev_record_hash` chain | FIPS 180-4 (SHA-256) |
+| Independent time proof | `tsa_token` | RFC 3161 |
+| Input reproducibility | `inputs_hash` | Internal design |
+| Correct retention clock | `retention_trigger` split | 45 CFR § 164.316(b)(2)(i) |
+
+---
+
+## 8. Schema & Validation
+
+```bash
+python audit/validate_audit.py \
+  --schema schema/quarterly_audit.schema.json \
+  --input  audit/quarterly_audit.yaml
+```
+
+Expected output:
+
+```text
+OK: 0 errors, 0 warnings, 33 assertions
+```
+
+CI gates (`.github/workflows/`):
+
+| Workflow | Trigger | Failure consequence |
+|---|---|---|
+| `validate-audit.yml` | Every push touching `audit/` or `schema/` | Blocks merge |
+| `link-check.yml` | Weekly cron | Opens issue with dead links |
+| `hash-chain-verify.yml` | Nightly | Fires FS1 escalation |
+| `retention-expiry-report.yml` | Monthly cron | Emails T−180 digest to class owners |
+
+---
+
